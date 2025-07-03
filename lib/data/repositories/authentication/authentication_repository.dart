@@ -1,4 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:get/get.dart';
@@ -48,24 +50,70 @@ class AuthenticationRepository extends GetxController {
   }
 
   /// Function to Show Relevant Screen
+  /// Function to Show Relevant Screen
   screenRedirect(User? user, {String phoneNumber = '', bool pinScreen = false, bool stopLoadingWhenReady = false}) async {
     if (user != null) {
-      // User Logged-In: If email verified let the user go to Home Screen else to the Email Verification Screen
-      if (user.emailVerified || user.phoneNumber != null) {
-        // Initialize User Specific Storage
-        await TLocalStorage.init(user.uid);
-        Get.offAll(() => HomePage());
-      } else {
-        Get.offAll(() => VerifyEmailScreen(email: getUserEmail));
+      final uid = user.uid;
+      final email = user.email;
+
+      try {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+
+        DateTime? createdAt;
+        final data = userDoc.data();
+        if (data != null && data.containsKey('createdAt')) {
+          createdAt = data['createdAt']?.toDate();
+        }
+
+        final now = DateTime.now();
+        final isExpired = createdAt != null && now.difference(createdAt).inDays >= 7;
+
+        if (isExpired && email != null) {
+          // Password expired — sign out and send reset email
+          await FirebaseAuth.instance.signOut();
+          await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+
+          Get.defaultDialog(
+            title: "Password Expired",
+            middleText: "Your password has expired. A reset link has been sent to your email.",
+            confirm: ElevatedButton(
+              onPressed: () {
+                Get.back();
+                Get.offAll(() => const LoginScreen());
+              },
+              child: const Text("OK"),
+            ),
+          );
+          return;
+        }
+
+        // Update createdAt to now (extend password validity)
+        await FirebaseFirestore.instance.collection('users').doc(uid).set(
+          {'createdAt': now},
+          SetOptions(merge: true),
+        );
+
+        // Email verified? Then go to home
+        if (user.emailVerified || user.phoneNumber != null) {
+          await TLocalStorage.init(uid);
+          Get.offAll(() => HomePage());
+        } else {
+          Get.offAll(() => VerifyEmailScreen(email: email ?? ""));
+        }
+      } catch (e) {
+        // Fallback on error
+        Get.snackbar("Error", "Something went wrong while checking user session.");
+        Get.offAll(() => const LoginScreen());
       }
     } else {
-      // Local Storage: User is new or Logged out! If new then write isFirstTime Local storage variable = true.
+      // New or logged-out user
       deviceStorage.writeIfNull('isFirstTime', true);
       deviceStorage.read('isFirstTime') != true
           ? Get.offAll(() => const LoginScreen())
           : Get.offAll(() => const OnBoardingScreen());
     }
   }
+
 
   /* ---------------------------- Email & Password sign-in ---------------------------------*/
 
