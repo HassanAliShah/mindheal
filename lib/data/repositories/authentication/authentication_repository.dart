@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:mindheal/features/authentication/screens/login/login.dart';
 
+import '../../../features/Home/home_page.dart';
 import '../../../features/authentication/screens/onboarding/onboarding.dart';
 import '../../../features/authentication/screens/signup/verify_email.dart';
 import '../../../utils/exceptions/firebase_auth_exceptions.dart';
@@ -53,7 +54,7 @@ class AuthenticationRepository extends GetxController {
       if (user.emailVerified || user.phoneNumber != null) {
         // Initialize User Specific Storage
         await TLocalStorage.init(user.uid);
-        //Get.offAll(() => const HomeMenu());
+        Get.offAll(() => HomePage());
       } else {
         Get.offAll(() => VerifyEmailScreen(email: getUserEmail));
       }

@@ -85,4 +85,5 @@ class DefaultFirebaseOptions {
     storageBucket: 'mindheal-38fcc.firebasestorage.app',
     measurementId: 'G-5LPTCT7QMZ',
   );
+
 }

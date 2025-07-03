@@ -45,4 +45,14 @@ class TRoutes {
   //Notification
   static const notification = '/notification';
   static const notificationDetails = '/notification-details';
+
+  static const categories = '/categories';
+
+  static const practices = '/practices';
+
+  static const appointments = '/appointments';
+
+  static const progress = '/progress';
+
+  static const feedback = '/feedback';
 }
