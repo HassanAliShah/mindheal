@@ -10,16 +10,21 @@ import '../../../utils/popups/full_screen_loader.dart';
 import '../../../utils/popups/loaders.dart';
 import '../../personalization/controllers/user_controller.dart';
 
+
+
 class LoginController extends GetxController {
   static LoginController get instance => Get.find();
 
-  /// Variables
   final hidePassword = true.obs;
   final rememberMe = false.obs;
   final localStorage = GetStorage();
   final email = TextEditingController();
   final password = TextEditingController();
-  GlobalKey<FormState> loginFormKey = GlobalKey<FormState>();
+  final loginFormKey = GlobalKey<FormState>();
+
+  /// New 👇
+  int failedAttempts = 0;
+  final int maxAttempts = 3;
 
   @override
   void onInit() {
@@ -31,10 +36,8 @@ class LoginController extends GetxController {
   /// -- Email and Password SignIn
   Future<void> emailAndPasswordSignIn() async {
     try {
-      // Start Loading
       TFullScreenLoader.openLoadingDialog('Logging you in...', TImages.docerAnimation);
 
-      // Check Internet Connectivity
       final isConnected = await NetworkManager.instance.isConnected();
       if (!isConnected) {
         TFullScreenLoader.stopLoading();
@@ -42,36 +45,48 @@ class LoginController extends GetxController {
         return;
       }
 
-      // Form Validation
       if (!loginFormKey.currentState!.validate()) {
         TFullScreenLoader.stopLoading();
         return;
       }
 
-      // Save Data if Remember Me is selected
       if (rememberMe.value) {
         localStorage.write('REMEMBER_ME_EMAIL', email.text.trim());
         localStorage.write('REMEMBER_ME_PASSWORD', password.text.trim());
       }
 
-      // Login user using EMail & Password Authentication
-      final userCredentials = await AuthenticationRepository.instance.loginWithEmailAndPassword(email.text.trim(), password.text.trim());
+      final userCredentials = await AuthenticationRepository.instance
+          .loginWithEmailAndPassword(email.text.trim(), password.text.trim());
+
+      failedAttempts = 0; // Reset on success ✅
 
       final token = await TNotificationService.getToken();
       final userController = Get.put(UserController());
-      await  userController.updateUserRecordWithToken(token);
-      // Assign user data to RxUser of UserController to use in app
+      await userController.updateUserRecordWithToken(token);
       await userController.fetchUserRecord();
 
-      // Remove Loader
+      TFullScreenLoader.stopLoading();
+      await AuthenticationRepository.instance.screenRedirect(userCredentials.user);
+
+    } catch (e) {
+      failedAttempts++; // Track failed login attempts
+
       TFullScreenLoader.stopLoading();
 
-      // Redirect
-      await AuthenticationRepository.instance.screenRedirect(userCredentials.user);
-    } catch (e) {
-      TFullScreenLoader.stopLoading();
-      TLoaders.errorSnackBar(title: 'Oh Snap', message: e.toString());
+      if (failedAttempts >= maxAttempts) {
+        failedAttempts = 0;
+        await AuthenticationRepository.instance.sendPasswordResetEmail(email.text.trim());
+        TLoaders.warningSnackBar(
+          title: "Too Many Attempts",
+          message: "Reset link sent to your email. Try again after resetting your password.",
+        );
+      } else {
+        TLoaders.errorSnackBar(
+          title: 'Login Failed',
+          message: e.toString(),
+        );
+      }
     }
   }
-
 }
+

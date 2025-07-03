@@ -28,6 +28,8 @@ class AuthenticationRepository extends GetxController {
   var isPhoneAutoVerified = false;
   final _auth = FirebaseAuth.instance;
   int? _resendToken;
+  int failedAttempts = 0;
+
 
   /// Getters
   User? get firebaseUser => _firebaseUser.value;
@@ -49,7 +51,6 @@ class AuthenticationRepository extends GetxController {
     screenRedirect(_firebaseUser.value);
   }
 
-  /// Function to Show Relevant Screen
   /// Function to Show Relevant Screen
   screenRedirect(User? user, {String phoneNumber = '', bool pinScreen = false, bool stopLoadingWhenReady = false}) async {
     if (user != null) {
@@ -120,19 +121,65 @@ class AuthenticationRepository extends GetxController {
   /// [EmailAuthentication] - SignIn
   Future<UserCredential> loginWithEmailAndPassword(String email, String password) async {
     try {
-      return await _auth.signInWithEmailAndPassword(email: email, password: password);
+      final userCredential = await _auth.signInWithEmailAndPassword(email: email, password: password);
+      final uid = userCredential.user?.uid;
+
+      // Reset counter on success
+      failedAttempts = 0;
+
+      // Update createdAt (extend validity)
+      await FirebaseFirestore.instance.collection('users').doc(uid).set(
+        {'createdAt': DateTime.now()},
+        SetOptions(merge: true),
+      );
+
+      return userCredential;
     } on FirebaseAuthException catch (e) {
-      throw TFirebaseAuthException(e.code).message;
-    } on FirebaseException catch (e) {
-      throw TFirebaseException(e.code).message;
-    } on FormatException catch (_) {
-      throw const TFormatException();
-    } on PlatformException catch (e) {
-      throw TPlatformException(e.code).message;
+      failedAttempts++;
+
+      // Check if user exists in Firestore
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('email', isEqualTo: email)
+          .limit(1)
+          .get();
+
+      DateTime? createdAt;
+      if (snapshot.docs.isNotEmpty) {
+        final data = snapshot.docs.first.data();
+        if (data.containsKey('createdAt')) {
+          createdAt = data['createdAt']?.toDate();
+        }
+      }
+
+      final isExpired = createdAt != null &&
+          DateTime.now().difference(createdAt).inDays >= 7;
+
+      if (failedAttempts >= 3 || isExpired) {
+        failedAttempts = 0; // Reset after handling
+
+        // Try sending password reset email
+        try {
+          await _auth.sendPasswordResetEmail(email: email);
+        } catch (_) {}
+
+        // Throw custom message to be shown by UI
+        throw "Too many failed attempts or password expired. A reset link has been sent to your email.";
+      }
+
+      // Standard Firebase errors
+      if (e.code == 'user-not-found') {
+        throw "User not found";
+      } else if (e.code == 'wrong-password') {
+        throw "Wrong password";
+      } else {
+        throw TFirebaseAuthException(e.code).message;
+      }
     } catch (e) {
-      throw 'Something went wrong. Please try again';
+      throw 'Something went wrong. Please try again.';
     }
   }
+
 
   /// [EmailAuthentication] - REGISTER
   Future<UserCredential> registerWithEmailAndPassword(String email, String password) async {
